@@ -211,6 +211,7 @@ func (a *Application) imageToBase64(ctx context.Context, url string, size *Size)
 	}
 
 	base64Str := base64.StdEncoding.EncodeToString(bytes)
+	app.UpResized("base64")
 
 	return base64Str, nil
 }
