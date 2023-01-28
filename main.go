@@ -1,0 +1,71 @@
+package main
+
+import (
+	"context"
+	"github.com/cshum/imagor"
+	"github.com/cshum/imagor/loader/httploader"
+	"github.com/cshum/imagor/storage/s3storage"
+	"github.com/cshum/imagor/vips"
+	"go.uber.org/zap"
+	"net/http"
+	"os"
+	"sync"
+	"time"
+)
+
+const (
+	HttpClientTimeout = 5 * time.Second
+	RetryAttempts     = 3
+	RetryDelay        = 500 * time.Millisecond
+)
+
+var app *Application
+
+type Application struct {
+	Storage  *s3storage.S3Storage
+	Imagor   *imagor.Imagor
+	Client   *http.Client
+	Logger   *zap.Logger
+	Prefix   string
+	Counters *Counters
+	Mutex    *sync.Mutex
+}
+
+func NewApplication(ctx context.Context) *Application {
+	b := os.Getenv("S3_BUCKET")
+	r := os.Getenv("S3_REGION")
+	p := os.Getenv("S3_BUCKET_PREFIX")
+	img := imagor.New(
+		imagor.WithLoaders(httploader.New()),
+		imagor.WithProcessors(vips.NewProcessor()),
+	)
+	if err := img.Startup(ctx); err != nil {
+		panic(err)
+	}
+	img.AutoWebP = true
+	logger, err := zap.NewProduction()
+	if err != nil {
+		panic(err)
+	}
+	return &Application{
+		Storage: NewStorage(b, r, p),
+		Imagor:  img,
+		Client: &http.Client{
+			Timeout: HttpClientTimeout,
+		},
+		Logger: logger,
+		Prefix: p,
+		Counters: &Counters{
+			Resized:  make(map[string]int),
+			Failures: 0,
+		},
+		Mutex: &sync.Mutex{},
+	}
+}
+
+func main() {
+	ctx := context.Background()
+	app = NewApplication(ctx)
+	server := NewServer()
+	server.Start(ctx, "8000")
+}
