@@ -20,7 +20,7 @@ type Meta struct {
 	ContentType string `json:"content_type"`
 	Width       int    `json:"width"`
 	Height      int    `json:"height"`
-	Key         string `json:"-"`
+	Key         string `json:"key"`
 }
 
 // resize saves the resized images to the storage
