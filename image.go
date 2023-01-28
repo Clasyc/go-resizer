@@ -11,16 +11,31 @@ import (
 	"go.uber.org/zap"
 	"io"
 	"net/http"
+	"sort"
 	"strconv"
 	"sync"
 )
 
+type MetaKey struct {
+	Width  int    `json:"width"`
+	Height int    `json:"height"`
+	Key    string `json:"key"`
+}
+
 type Meta struct {
-	Format      string `json:"format"`
-	ContentType string `json:"content_type"`
-	Width       int    `json:"width"`
-	Height      int    `json:"height"`
-	Key         string `json:"key"`
+	Format      string     `json:"format"`
+	ContentType string     `json:"content_type"`
+	Width       int        `json:"width"`
+	Height      int        `json:"height"`
+	Keys        []*MetaKey `json:"keys"`
+}
+
+func (m *Meta) SortKeys() {
+	sort.Slice(
+		m.Keys, func(i, j int) bool {
+			return m.Keys[i].Key < m.Keys[j].Key
+		},
+	)
 }
 
 // resize saves the resized images to the storage
@@ -39,11 +54,18 @@ func (a *Application) resize(req *ResizeRequestBody, ctx context.Context) (*Meta
 		return nil, err
 	}
 
-	meta.Key = a.path(req)
+	orgKey := a.path(req)
+	meta.Keys = append(
+		meta.Keys, &MetaKey{
+			Width:  meta.Width,
+			Height: meta.Height,
+			Key:    orgKey,
+		},
+	)
 
 	// save original image
 	if req.SaveOriginal {
-		label, err := app.save(ctx, in, nil, meta.Key)
+		label, err := app.save(ctx, in, nil, orgKey)
 
 		if err != nil {
 			app.Logger.Info(
@@ -80,6 +102,14 @@ func (a *Application) resize(req *ResizeRequestBody, ctx context.Context) (*Meta
 				return
 			}
 
+			meta.Keys = append(
+				meta.Keys, &MetaKey{
+					Width:  size.Width,
+					Height: size.Height,
+					Key:    s3key,
+				},
+			)
+
 			app.UpResized(label)
 		}(&wg, app.Mutex, size)
 	}
@@ -88,6 +118,7 @@ func (a *Application) resize(req *ResizeRequestBody, ctx context.Context) (*Meta
 	if len(errs.Errors) > 0 {
 		return nil, errs
 	}
+	meta.SortKeys()
 
 	return meta, nil
 }
@@ -105,7 +136,9 @@ func (a *Application) metadata(ctx context.Context, in *imagor.Blob) (*Meta, err
 	}
 	defer r.Close()
 
-	meta := Meta{}
+	meta := Meta{
+		Keys: make([]*MetaKey, 0),
+	}
 	err = json.NewDecoder(r).Decode(&meta)
 	if err != nil {
 		return nil, err

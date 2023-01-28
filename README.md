@@ -44,10 +44,45 @@ curl --location --request POST 'http://localhost:8000/resize' \
 }'
 ```
 
+```
+{
+    "status": "ok",
+    "data": {
+        "format": "png",
+        "content_type": "image/png",
+        "width": 1999,
+        "height": 758,
+        "keys": [
+            {
+                "width": 1999,
+                "height": 758,
+                "key": "gotest/gopher/e5f9f1b0-7b1f-4b2f-8f1c-1c1f1f1f1f1f.webp"
+            },
+            {
+                "width": 512,
+                "height": 512,
+                "key": "gotest/gopher/e5f9f1b0-7b1f-4b2f-8f1c-1c1f1f1f1f1f_512x512.webp"
+            },
+            {
+                "width": 100,
+                "height": 100,
+                "key": "gotest/gopher/e5f9f1b0-7b1f-4b2f-8f1c-1c1f1f1f1f1f_100x100.webp"
+            },
+            {
+                "width": 200,
+                "height": 200,
+                "key": "gotest/gopher/e5f9f1b0-7b1f-4b2f-8f1c-1c1f1f1f1f1f_200x200.webp"
+            }
+        ]
+    }
+}
+```
+
 This will resize given image to 100x100 and 200x200 and save it to S3 bucket with the following paths:
 * `images/example/e5f9f1b0-7b1f-4b2f-8f1c-1c1f1f1f1f1f.webp`
 * `images/example/e5f9f1b0-7b1f-4b2f-8f1c-1c1f1f1f1f1f_100x100.webp`
 * `images/example/e5f9f1b0-7b1f-4b2f-8f1c-1c1f1f1f1f1f_200x200.webp`
+* `images/example/e5f9f1b0-7b1f-4b2f-8f1c-1c1f1f1f1f1f_512x512.webp`
 
 ### Prometheus metrics
 
