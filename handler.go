@@ -28,7 +28,7 @@ func resizeHandler() http.HandlerFunc {
 		}
 
 		ctx := r.Context()
-		err = app.resize(&b, ctx)
+		meta, err := app.resize(&b, ctx)
 		if err != nil {
 			re := NewResponseError()
 			switch err.(type) {
@@ -58,7 +58,12 @@ func resizeHandler() http.HandlerFunc {
 			return
 		}
 
-		fmt.Fprintf(w, fmt.Sprintf("image '%s' resized successfully", b.Key))
+		jsonResponse(
+			w, &ResponseBody{
+				Status: "ok",
+				Data:   meta,
+			}, http.StatusOK,
+		)
 	}
 }
 

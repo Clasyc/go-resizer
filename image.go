@@ -20,27 +20,30 @@ type Meta struct {
 	ContentType string `json:"content_type"`
 	Width       int    `json:"width"`
 	Height      int    `json:"height"`
+	Key         string `json:"-"`
 }
 
 // resize saves the resized images to the storage
-func (a *Application) resize(req *ResizeRequestBody, ctx context.Context) error {
+func (a *Application) resize(req *ResizeRequestBody, ctx context.Context) (*Meta, error) {
 	// download image
 	in, err := a.blob(req.URL)
 	if err != nil {
 		app.Logger.Info("failed to download image", zap.String("url", req.URL), zap.Error(err))
-		return err
+		return nil, err
 	}
 
 	// retrieve meta data about original image
 	meta, err := a.metadata(ctx, in)
 	if err != nil {
 		app.Logger.Info("failed to retrieve image metadata", zap.String("url", req.URL), zap.Error(err))
-		return err
+		return nil, err
 	}
+
+	meta.Key = a.path(req)
 
 	// save original image
 	if req.SaveOriginal {
-		label, err := app.save(ctx, in, nil, fmt.Sprintf("%s/%s/%s.webp", app.Prefix, req.Prefix, req.Key))
+		label, err := app.save(ctx, in, nil, meta.Key)
 
 		if err != nil {
 			app.Logger.Info(
@@ -49,7 +52,7 @@ func (a *Application) resize(req *ResizeRequestBody, ctx context.Context) error 
 				zap.String("key", req.Key),
 				zap.Error(err),
 			)
-			return err
+			return nil, err
 		}
 
 		app.UpResized(label)
@@ -83,10 +86,10 @@ func (a *Application) resize(req *ResizeRequestBody, ctx context.Context) error 
 	wg.Wait()
 
 	if len(errs.Errors) > 0 {
-		return errs
+		return nil, errs
 	}
 
-	return nil
+	return meta, nil
 }
 
 func (a *Application) metadata(ctx context.Context, in *imagor.Blob) (*Meta, error) {
@@ -214,4 +217,8 @@ func (a *Application) imageToBase64(ctx context.Context, url string, size *Size)
 	app.UpResized("base64")
 
 	return base64Str, nil
+}
+
+func (a *Application) path(req *ResizeRequestBody) string {
+	return fmt.Sprintf("%s/%s/%s.webp", a.Prefix, req.Prefix, req.Key)
 }

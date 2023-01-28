@@ -23,7 +23,7 @@ type ResizeRequestBody struct {
 
 type ResponseBody struct {
 	Status string               `json:"status"`
-	Data   string               `json:"data,omitempty"`
+	Data   interface{}          `json:"data,omitempty"`
 	Errors []*ResponseBodyError `json:"errors,omitempty"`
 }
 
