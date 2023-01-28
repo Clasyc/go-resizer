@@ -5,8 +5,7 @@ import (
 )
 
 type Counters struct {
-	Resized  map[string]int
-	Failures int
+	Resized map[string]int
 }
 
 func (a *Application) UpResized(label string) {
@@ -18,24 +17,16 @@ func (a *Application) UpResized(label string) {
 	a.Counters.Resized[label]++
 }
 
-func (a *Application) UpFailures() {
-	a.Mutex.Lock()
-	defer a.Mutex.Unlock()
-	a.Counters.Failures++
-}
-
 type Exporter struct {
 	ExporterMetrics
 }
 
 type ExporterMetrics struct {
-	Resized  *prometheus.Desc
-	Failures *prometheus.Desc
+	Resized *prometheus.Desc
 }
 
 func (em *ExporterMetrics) Describe(ch chan<- *prometheus.Desc) {
 	ch <- em.Resized
-	ch <- em.Failures
 }
 
 func (e *Exporter) Collect(ch chan<- prometheus.Metric) {
@@ -47,7 +38,6 @@ func (e *Exporter) Collect(ch chan<- prometheus.Metric) {
 			label,
 		)
 	}
-	ch <- prometheus.MustNewConstMetric(e.Failures, prometheus.CounterValue, float64(app.Counters.Failures))
 }
 
 func (em *ExporterMetrics) initializeDescriptors() {
@@ -55,12 +45,6 @@ func (em *ExporterMetrics) initializeDescriptors() {
 		"resized_images_total",
 		"Number of images resized",
 		[]string{"label"},
-		nil,
-	)
-	em.Failures = prometheus.NewDesc(
-		"errors_total",
-		"Number of times an error occurred",
-		nil,
 		nil,
 	)
 }

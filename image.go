@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"github.com/avast/retry-go"
@@ -23,6 +24,94 @@ type Meta struct {
 
 // resize saves the resized images to the storage
 func (a *Application) resize(req *ResizeRequestBody, ctx context.Context) error {
+	// download image
+	in, err := a.blob(req.URL)
+	if err != nil {
+		app.Logger.Info("failed to download image", zap.String("url", req.URL), zap.Error(err))
+		return err
+	}
+
+	// retrieve meta data about original image
+	meta, err := a.metadata(ctx, in)
+	if err != nil {
+		app.Logger.Info("failed to retrieve image metadata", zap.String("url", req.URL), zap.Error(err))
+		return err
+	}
+
+	// save original image
+	if req.SaveOriginal {
+		label, err := app.save(ctx, in, nil, fmt.Sprintf("%s/%s/%s.webp", app.Prefix, req.Prefix, req.Key))
+
+		if err != nil {
+			app.Logger.Info(
+				"failed to save image",
+				zap.String("image", label),
+				zap.String("key", req.Key),
+				zap.Error(err),
+			)
+			return err
+		}
+
+		app.UpResized(label)
+	}
+
+	errs := NewResizeErrors()
+	var wg sync.WaitGroup
+	wg.Add(len(req.Sizes))
+
+	// save resized images
+	for _, size := range req.Sizes {
+		go func(wg *sync.WaitGroup, mu *sync.Mutex, size *Size) {
+			defer wg.Done()
+			s3key := fmt.Sprintf("%s/%s/%s_%dx%d.webp", app.Prefix, req.Prefix, req.Key, size.Width, size.Height)
+
+			if meta.Width < size.Width && meta.Height < size.Height {
+				return
+			}
+
+			label, err := app.save(ctx, in, size, s3key)
+			if err != nil {
+				mu.Lock()
+				errs.Add(err.(*ResizeError))
+				mu.Unlock()
+				return
+			}
+
+			app.UpResized(label)
+		}(&wg, app.Mutex, size)
+	}
+	wg.Wait()
+
+	if len(errs.Errors) > 0 {
+		return errs
+	}
+
+	return nil
+}
+
+func (a *Application) metadata(ctx context.Context, in *imagor.Blob) (*Meta, error) {
+	blob, err := a.Imagor.ServeBlob(
+		ctx, in, imagorpath.Params{
+			Meta: true,
+		},
+	)
+
+	r, _, err := blob.NewReader()
+	if err != nil {
+		return nil, err
+	}
+	defer r.Close()
+
+	meta := Meta{}
+	err = json.NewDecoder(r).Decode(&meta)
+	if err != nil {
+		return nil, err
+	}
+
+	return &meta, nil
+}
+
+func (a *Application) blob(url string) (*imagor.Blob, error) {
 	var in *imagor.Blob
 	err := retry.Do(
 		func() error {
@@ -30,7 +119,7 @@ func (a *Application) resize(req *ResizeRequestBody, ctx context.Context) error 
 			in = imagor.NewBlob(
 				func() (reader io.ReadCloser, size int64, err error) {
 					var resp *http.Response
-					if resp, err = a.Client.Get(req.URL); err != nil {
+					if resp, err = a.Client.Get(url); err != nil {
 						e = err
 						return
 					}
@@ -45,161 +134,83 @@ func (a *Application) resize(req *ResizeRequestBody, ctx context.Context) error 
 		retry.Delay(RetryDelay),
 	)
 
-	if err != nil {
-		app.Logger.Info("failed to download image", zap.String("url", req.URL), zap.Error(err))
-		app.UpFailures()
-		return err
+	return in, err
+}
+
+func (a *Application) save(ctx context.Context, in *imagor.Blob, size *Size, key string) (string, error) {
+	label := "original"
+	params := imagorpath.Params{
+		FitIn: true,
+		Filters: []imagorpath.Filter{
+			{"format", "webp"},
+		},
 	}
 
-	// retrieve meta data about original image
-	blob, err := a.Imagor.ServeBlob(
-		ctx, in, imagorpath.Params{
-			Meta: true,
+	if size != nil {
+		label = fmt.Sprintf("%dx%d", size.Width, size.Height)
+		params.Width = size.Width
+		params.Height = size.Height
+	}
+
+	out, err := a.Imagor.ServeBlob(ctx, in, params)
+	if err != nil {
+		return label, &ResizeError{
+			Key: label,
+			Err: err,
+		}
+	}
+	err = retry.Do(
+		func() error {
+			return a.Storage.Put(ctx, key, out)
+		},
+		retry.Attempts(RetryAttempts),
+		retry.Delay(RetryDelay),
+	)
+	if err != nil {
+		return label, &ResizeError{
+			Key: label,
+			Err: err,
+		}
+	}
+
+	return label, nil
+}
+
+func (a *Application) imageToBase64(ctx context.Context, url string, size *Size) (string, error) {
+	blob, err := app.blob(url)
+	if err != nil {
+		app.Logger.Info("failed to download image", zap.String("url", url), zap.Error(err))
+		return "", err
+	}
+
+	out, err := app.Imagor.ServeBlob(
+		ctx, blob, imagorpath.Params{
+			FitIn:  true,
+			Width:  size.Width,
+			Height: size.Height,
+			Filters: []imagorpath.Filter{
+				{"format", "webp"},
+			},
 		},
 	)
 
-	r, _, err := blob.NewReader()
 	if err != nil {
-		app.Logger.Info("failed to read blob", zap.Error(err))
-		app.UpFailures()
-		return err
+		app.Logger.Info("failed to resize image for base64", zap.String("url", url), zap.Error(err))
+		return "", err
 	}
-	defer r.Close()
 
-	meta := Meta{}
-	err = json.NewDecoder(r).Decode(&meta)
+	reader, _, err := out.NewReader()
 	if err != nil {
-		app.Logger.Info("failed to decode meta", zap.Error(err))
-		app.UpFailures()
-		return err
+		panic(err)
 	}
 
-	// save original image
-	if req.SaveOriginal {
-		out, err := a.Imagor.ServeBlob(
-			ctx, in, imagorpath.Params{
-				FitIn: true,
-				Filters: []imagorpath.Filter{
-					{"format", "webp"},
-				},
-			},
-		)
-		if err != nil {
-			app.Logger.Info(
-				"failed to serve image",
-				zap.String("image", "original"),
-				zap.String("key", req.Key),
-				zap.Error(err),
-			)
-			app.UpFailures()
-			return &ResizeError{
-				Key: "original",
-				Err: err,
-			}
-		}
-		err = retry.Do(
-			func() error {
-				return a.Storage.Put(ctx, fmt.Sprintf("%s/%s/%s.webp", app.Prefix, req.Prefix, req.Key), out)
-			},
-			retry.Attempts(RetryAttempts),
-			retry.Delay(RetryDelay),
-		)
-		if err != nil {
-			app.Logger.Info(
-				"failed to save image",
-				zap.String("image", "original"),
-				zap.String("key", req.Key),
-				zap.Error(err),
-			)
-			app.UpFailures()
-			return &ResizeError{
-				Key: "original",
-				Err: err,
-			}
-		}
-
-		app.UpResized("original")
+	bytes, err := io.ReadAll(reader)
+	if err != nil {
+		app.Logger.Info("failed to read bytes", zap.String("url", url), zap.Error(err))
+		return "", err
 	}
 
-	errs := NewResizeErrors()
-	var wg sync.WaitGroup
-	wg.Add(len(req.Sizes))
+	base64Str := base64.StdEncoding.EncodeToString(bytes)
 
-	// save resized images
-	for _, size := range req.Sizes {
-		go func(wg *sync.WaitGroup, mu *sync.Mutex, size *Size) {
-			defer wg.Done()
-			s3key := fmt.Sprintf("%s/%s/%s_%dx%d.webp", app.Prefix, req.Prefix, req.Key, size.Width, size.Height)
-			sl := fmt.Sprintf("%dx%d", size.Width, size.Height)
-			out, err := a.Imagor.ServeBlob(
-				ctx, in, imagorpath.Params{
-					Width:  size.Width,
-					Height: size.Height,
-					FitIn:  true,
-					Filters: []imagorpath.Filter{
-						{"format", "webp"},
-					},
-				},
-			)
-			if err != nil {
-				mu.Lock()
-				app.Logger.Info(
-					"failed to serve image",
-					zap.String("image", sl),
-					zap.String("key", s3key),
-					zap.Error(err),
-				)
-				app.UpFailures()
-				errs.Add(
-					&ResizeError{
-						Key: sl,
-						Err: err,
-					},
-				)
-				mu.Unlock()
-				return
-			}
-
-			// skip if the size is larger than the original image
-			if meta.Width < size.Width && meta.Height < size.Height {
-				return
-			}
-
-			err = retry.Do(
-				func() error {
-					return a.Storage.Put(
-						ctx, s3key, out,
-					)
-				},
-				retry.Attempts(RetryAttempts),
-				retry.Delay(RetryDelay),
-			)
-			if err != nil {
-				mu.Lock()
-				app.Logger.Info(
-					"failed to save image",
-					zap.String("image", sl),
-					zap.String("key", s3key),
-					zap.Error(err),
-				)
-				app.UpFailures()
-				errs.Add(
-					&ResizeError{
-						Key: sl,
-						Err: err,
-					},
-				)
-				mu.Unlock()
-			}
-
-			app.UpResized(sl)
-		}(&wg, app.Mutex, size)
-	}
-	wg.Wait()
-
-	if len(errs.Errors) > 0 {
-		return errs
-	}
-
-	return nil
+	return base64Str, nil
 }

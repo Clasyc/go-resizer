@@ -56,8 +56,7 @@ func NewApplication(ctx context.Context) *Application {
 		Logger: logger,
 		Prefix: p,
 		Counters: &Counters{
-			Resized:  make(map[string]int),
-			Failures: 0,
+			Resized: make(map[string]int),
 		},
 		Mutex: &sync.Mutex{},
 	}
