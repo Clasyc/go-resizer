@@ -26,7 +26,6 @@ type Application struct {
 	Imagor   *imagor.Imagor
 	Client   *http.Client
 	Logger   *zap.Logger
-	Prefix   string
 	Counters *Counters
 	Mutex    *sync.Mutex
 }
@@ -34,7 +33,6 @@ type Application struct {
 func NewApplication(ctx context.Context) *Application {
 	b := os.Getenv("S3_BUCKET")
 	r := os.Getenv("S3_REGION")
-	p := os.Getenv("S3_BUCKET_PREFIX")
 	img := imagor.New(
 		imagor.WithLoaders(httploader.New()),
 		imagor.WithProcessors(vips.NewProcessor()),
@@ -48,13 +46,12 @@ func NewApplication(ctx context.Context) *Application {
 		panic(err)
 	}
 	return &Application{
-		Storage: NewStorage(b, r, p),
+		Storage: NewStorage(b, r),
 		Imagor:  img,
 		Client: &http.Client{
 			Timeout: HttpClientTimeout,
 		},
 		Logger: logger,
-		Prefix: p,
 		Counters: &Counters{
 			Resized: make(map[string]int),
 		},

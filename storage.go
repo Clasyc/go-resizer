@@ -7,7 +7,7 @@ import (
 	"github.com/cshum/imagor/storage/s3storage"
 )
 
-func NewStorage(bucket, region, prefix string) *s3storage.S3Storage {
+func NewStorage(bucket, region string) *s3storage.S3Storage {
 	sess := session.Must(
 		session.NewSession(
 			&aws.Config{
@@ -16,5 +16,5 @@ func NewStorage(bucket, region, prefix string) *s3storage.S3Storage {
 			},
 		),
 	)
-	return s3storage.New(sess, bucket, s3storage.WithPathPrefix(prefix))
+	return s3storage.New(sess, bucket)
 }

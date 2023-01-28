@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 )
 
@@ -54,7 +55,7 @@ func (a *Application) resize(req *ResizeRequestBody, ctx context.Context) (*Meta
 		return nil, err
 	}
 
-	orgKey := a.path(req)
+	orgKey := join(req.Prefix, req.Key+".webp")
 	meta.Keys = append(
 		meta.Keys, &MetaKey{
 			Width:  meta.Width,
@@ -88,8 +89,7 @@ func (a *Application) resize(req *ResizeRequestBody, ctx context.Context) (*Meta
 	for _, size := range req.Sizes {
 		go func(wg *sync.WaitGroup, mu *sync.Mutex, size *Size) {
 			defer wg.Done()
-			s3key := fmt.Sprintf("%s/%s/%s_%dx%d.webp", app.Prefix, req.Prefix, req.Key, size.Width, size.Height)
-
+			s3key := join(req.Prefix, fmt.Sprintf("%s_%dx%d.webp", req.Key, size.Width, size.Height))
 			if meta.Width < size.Width && meta.Height < size.Height {
 				return
 			}
@@ -252,6 +252,18 @@ func (a *Application) imageToBase64(ctx context.Context, url string, size *Size)
 	return base64Str, nil
 }
 
-func (a *Application) path(req *ResizeRequestBody) string {
-	return fmt.Sprintf("%s/%s/%s.webp", a.Prefix, req.Prefix, req.Key)
+func join(s1, s2 string) string {
+	var p string
+	if s1 != "" {
+		p += "/" + s1
+	}
+	if s2 != "" {
+		p += "/" + s2
+	}
+
+	if p == "" {
+		return ""
+	}
+
+	return strings.TrimPrefix(p, "/")
 }
