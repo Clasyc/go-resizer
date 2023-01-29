@@ -28,7 +28,7 @@ func resizeHandler() http.HandlerFunc {
 		}
 
 		ctx := r.Context()
-		meta, err := app.resize(&b, ctx)
+		meta, err := app.Resize(&b, ctx)
 		if err != nil {
 			re := NewResponseError()
 			switch err.(type) {

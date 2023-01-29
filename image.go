@@ -15,7 +15,10 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
+
+const DefaultFormat = "webp"
 
 type MetaKey struct {
 	Width  int    `json:"width"`
@@ -31,6 +34,36 @@ type Meta struct {
 	Keys        []*MetaKey `json:"keys"`
 }
 
+type Size struct {
+	Width  int `json:"width"`
+	Height int `json:"height"`
+}
+
+type Fallback struct {
+	Format string
+	Size   *Size
+}
+
+type ResizePlan struct {
+	Blueprint []*ResizeParams
+}
+
+type ResizeParams struct {
+	Size   *Size
+	Format string
+}
+
+func NewSize(d string) *Size {
+	s := strings.Split(d, "x")
+	if len(s) != 2 {
+		return nil
+	}
+	return &Size{
+		Width:  atoi(s[0]),
+		Height: atoi(s[1]),
+	}
+}
+
 func (m *Meta) SortKeys() {
 	sort.Slice(
 		m.Keys, func(i, j int) bool {
@@ -39,8 +72,8 @@ func (m *Meta) SortKeys() {
 	)
 }
 
-// resize saves the resized images to the storage
-func (a *Application) resize(req *ResizeRequestBody, ctx context.Context) (*Meta, error) {
+// Resize saves the resized images to the storage
+func (a *Application) Resize(req *ResizeRequestBody, ctx context.Context) (*Meta, error) {
 	// download image
 	in, err := a.blob(req.URL)
 	if err != nil {
@@ -55,63 +88,66 @@ func (a *Application) resize(req *ResizeRequestBody, ctx context.Context) (*Meta
 		return nil, err
 	}
 
-	orgKey := join(req.Prefix, req.Key+".webp")
-	meta.Keys = append(
-		meta.Keys, &MetaKey{
-			Width:  meta.Width,
-			Height: meta.Height,
-			Key:    orgKey,
-		},
-	)
-
-	// save original image
-	if req.SaveOriginal {
-		label, err := app.save(ctx, in, nil, orgKey)
-
-		if err != nil {
-			app.Logger.Info(
-				"failed to save image",
-				zap.String("image", label),
-				zap.String("key", req.Key),
-				zap.Error(err),
-			)
-			return nil, err
-		}
-
-		app.UpResized(label)
+	p := &ResizePlan{
+		Blueprint: make([]*ResizeParams, 0),
 	}
 
-	errs := NewResizeErrors()
-	var wg sync.WaitGroup
-	wg.Add(len(req.Sizes))
+	// save fallback image
+	if a.Fallback.Format != "" {
+		p.Blueprint = append(
+			p.Blueprint, &ResizeParams{
+				Size:   a.Fallback.Size,
+				Format: a.Fallback.Format,
+			},
+		)
+	}
+
+	// save webp image
+	if req.SaveOriginal {
+		p.Blueprint = append(
+			p.Blueprint, &ResizeParams{
+				Format: DefaultFormat,
+			},
+		)
+	}
 
 	// save resized images
+	errs := NewResizeErrors()
 	for _, size := range req.Sizes {
-		go func(wg *sync.WaitGroup, mu *sync.Mutex, size *Size) {
-			defer wg.Done()
-			s3key := join(req.Prefix, fmt.Sprintf("%s_%dx%d.webp", req.Key, size.Width, size.Height))
-			if meta.Width < size.Width && meta.Height < size.Height {
-				return
-			}
+		p.Blueprint = append(
+			p.Blueprint, &ResizeParams{
+				Size:   size,
+				Format: DefaultFormat,
+			},
+		)
+	}
 
-			label, err := app.save(ctx, in, size, s3key)
-			if err != nil {
+	// do resize and s3 API calls in go routines
+	var wg sync.WaitGroup
+	wg.Add(len(p.Blueprint))
+	for _, params := range p.Blueprint {
+		s3key := a.creates3Key(params.Size, params.Format, req.Key, req.Prefix)
+		if params.Size == nil {
+			params.Size = &Size{
+				Width:  meta.Width,
+				Height: meta.Height,
+			}
+		}
+		meta.Keys = append(
+			meta.Keys, &MetaKey{
+				Width:  params.Size.Width,
+				Height: params.Size.Height,
+				Key:    s3key,
+			},
+		)
+		go func(wg *sync.WaitGroup, mu *sync.Mutex, pr *ResizeParams) {
+			defer wg.Done()
+			if err := a.save(in, s3key, pr.Format, pr.Size, ctx); err != nil {
 				mu.Lock()
 				errs.Add(err.(*ResizeError))
 				mu.Unlock()
-				return
 			}
-
-			meta.Keys = append(
-				meta.Keys, &MetaKey{
-					Width:  size.Width,
-					Height: size.Height,
-					Key:    s3key,
-				},
-			)
-
-			app.UpResized(label)
-		}(&wg, app.Mutex, size)
+		}(&wg, app.Mutex, params)
 	}
 	wg.Wait()
 
@@ -121,6 +157,36 @@ func (a *Application) resize(req *ResizeRequestBody, ctx context.Context) (*Meta
 	meta.SortKeys()
 
 	return meta, nil
+}
+
+func (a *Application) creates3Key(size *Size, format, name, prefix string) string {
+	var s3key string
+	if size != nil {
+		s3key = join(prefix, fmt.Sprintf("%s_%dx%d.%s", name, size.Width, size.Height, format))
+	} else {
+		s3key = join(prefix, name+"."+format)
+	}
+	return s3key
+}
+
+func (a *Application) save(
+	in *imagor.Blob, s3key string, format string, size *Size, ctx context.Context,
+) error {
+	label, err := app.resize(ctx, in, size, format, s3key)
+
+	if err != nil {
+		app.Logger.Info(
+			"failed to resize image",
+			zap.String("image", label),
+			zap.String("key", s3key),
+			zap.Error(err),
+		)
+		return err
+	}
+
+	app.UpResized(label)
+
+	return nil
 }
 
 func (a *Application) metadata(ctx context.Context, in *imagor.Blob) (*Meta, error) {
@@ -173,12 +239,12 @@ func (a *Application) blob(url string) (*imagor.Blob, error) {
 	return in, err
 }
 
-func (a *Application) save(ctx context.Context, in *imagor.Blob, size *Size, key string) (string, error) {
+func (a *Application) resize(ctx context.Context, in *imagor.Blob, size *Size, format, key string) (string, error) {
 	label := "original"
 	params := imagorpath.Params{
 		FitIn: true,
 		Filters: []imagorpath.Filter{
-			{"format", "webp"},
+			{"format", format},
 		},
 	}
 
@@ -188,6 +254,7 @@ func (a *Application) save(ctx context.Context, in *imagor.Blob, size *Size, key
 		params.Height = size.Height
 	}
 
+	start := time.Now()
 	out, err := a.Imagor.ServeBlob(ctx, in, params)
 	if err != nil {
 		return label, &ResizeError{
@@ -195,6 +262,8 @@ func (a *Application) save(ctx context.Context, in *imagor.Blob, size *Size, key
 			Err: err,
 		}
 	}
+	elapsed := time.Since(start)
+	app.Logger.Info(fmt.Sprintf("resize on %s, took %s", key, elapsed))
 	err = retry.Do(
 		func() error {
 			return a.Storage.Put(ctx, key, out)
@@ -266,4 +335,9 @@ func join(s1, s2 string) string {
 	}
 
 	return strings.TrimPrefix(p, "/")
+}
+
+func atoi(s string) int {
+	i, _ := strconv.Atoi(s)
+	return i
 }

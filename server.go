@@ -32,11 +32,6 @@ type ResponseBodyError struct {
 	Message string `json:"error"`
 }
 
-type Size struct {
-	Width  int `json:"width"`
-	Height int `json:"height"`
-}
-
 func NewResizeRequestBody() ResizeRequestBody {
 	return ResizeRequestBody{
 		SaveOriginal: true,

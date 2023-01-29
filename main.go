@@ -28,11 +28,14 @@ type Application struct {
 	Logger   *zap.Logger
 	Counters *Counters
 	Mutex    *sync.Mutex
+	Fallback Fallback
 }
 
 func NewApplication(ctx context.Context) *Application {
 	b := os.Getenv("S3_BUCKET")
 	r := os.Getenv("S3_REGION")
+	ff := os.Getenv("FALLBACK_FORMAT")
+	fs := os.Getenv("FALLBACK_SIZE")
 	img := imagor.New(
 		imagor.WithLoaders(httploader.New()),
 		imagor.WithProcessors(vips.NewProcessor()),
@@ -56,6 +59,10 @@ func NewApplication(ctx context.Context) *Application {
 			Resized: make(map[string]int),
 		},
 		Mutex: &sync.Mutex{},
+		Fallback: Fallback{
+			Format: ff,
+			Size:   NewSize(fs),
+		},
 	}
 }
 
