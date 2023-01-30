@@ -1,6 +1,6 @@
 # Go image resizer based on [Imagor](https://github.com/cshum/imagor)
 This app will resize image to multiple images for each given size. 
-Output images will be saved to S3 bucket as `webp` format.
+Output images will be saved to S3 bucket by default as `webp` format.
 > NOTE: If original image size is smaller than given size, it will be skipped.
 
 
@@ -16,15 +16,26 @@ Output images will be saved to S3 bucket as `webp` format.
 | FALLBACK_SIZE         | original                   | The size which will be used for fallback image, example `512x512`, to keep original size use `original`                                        |
 | FORMAT                | webp                       | The format which will be used to resize the images. Possible values: `original`, `jpg`, `png`, `webp`                                          |
 
-### Resize
-1. Run `docker build -t resizer .`
-2. Run 
+### Run locally
+1. Build docker image
+    ```bash
+    docker build -t image-resizer .
     ```
-    docker run -p 8001:8000 -e S3_BUCKET=bucket-name -e S3_REGION=eu-west-1 -e AWS_ACCESS_KEY_ID=access-key-id -e AWS_SECRET_ACCESS_KEY=secret-access-key -e FALLBACK_FORMAT=jpg -e FALLBACK_SIZE=original -e FORMAT=webp resizer
+2. Run docker image
+    ```bash
+    docker run -p 8000:8000 \
+    -e S3_BUCKET=bucket-name \
+    -e S3_REGION=eu-west-1 \
+    -e AWS_ACCESS_KEY_ID=access-key-id \
+    -e AWS_SECRET_ACCESS_KEY=secret-access-key \
+    -e FALLBACK_FORMAT=jpg \
+    -e FALLBACK_SIZE=original \
+    -e FORMAT=webp \
+    resizer
     ```
 3. Send a POST request:
 
-    ```
+    ```bash
     curl --location --request POST 'http://localhost:8000/resize' \
     --header 'Content-Type: application/json' \
     --data-raw '{
