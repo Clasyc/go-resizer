@@ -29,6 +29,7 @@ type Application struct {
 	Counters *Counters
 	Mutex    *sync.Mutex
 	Fallback Fallback
+	Format   string
 }
 
 func NewApplication(ctx context.Context) *Application {
@@ -36,6 +37,10 @@ func NewApplication(ctx context.Context) *Application {
 	r := os.Getenv("S3_REGION")
 	ff := os.Getenv("FALLBACK_FORMAT")
 	fs := os.Getenv("FALLBACK_SIZE")
+	fo := os.Getenv("FORMAT")
+	if fo == "" {
+		fo = DefaultFormat
+	}
 	img := imagor.New(
 		imagor.WithLoaders(httploader.New()),
 		imagor.WithProcessors(vips.NewProcessor()),
@@ -63,6 +68,7 @@ func NewApplication(ctx context.Context) *Application {
 			Format: ff,
 			Size:   NewSize(fs),
 		},
+		Format: fo,
 	}
 }
 

@@ -14,12 +14,13 @@ Output images will be saved to S3 bucket as `webp` format.
 | AWS_SECRET_ACCESS_KEY | BypKqExaMpLeExamPleExample | AWS credentials secret                                                                                                                         |
 | FALLBACK_FORMAT       | jpg                        | The image format which will be saved as alternative to webp for fallback support, if not set it will be skipped. Possible values: `jpg`, `png` |
 | FALLBACK_SIZE         | original                   | The size which will be used for fallback image, example `512x512`, to keep original size use `original`                                        |
+| FORMAT                | webp                       | The format which will be used to resize the images. Possible values: `original`, `jpg`, `png`, `webp`                                          |
 
 ### Resize
 1. Run `docker build -t resizer .`
 2. Run 
     ```
-    docker run -p 8001:8000 -e S3_BUCKET=bucket-name -e S3_REGION=eu-west-1 -e AWS_ACCESS_KEY_ID=access-key-id -e AWS_SECRET_ACCESS_KEY=secret-access-key -e FALLBACK_FORMAT=jpg -e FALLBACK_SIZE=original resizer
+    docker run -p 8001:8000 -e S3_BUCKET=bucket-name -e S3_REGION=eu-west-1 -e AWS_ACCESS_KEY_ID=access-key-id -e AWS_SECRET_ACCESS_KEY=secret-access-key -e FALLBACK_FORMAT=jpg -e FALLBACK_SIZE=original -e FORMAT=webp resizer
     ```
 3. Send a POST request:
 

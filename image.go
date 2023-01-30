@@ -92,6 +92,11 @@ func (a *Application) Resize(req *ResizeRequestBody, ctx context.Context) (*Meta
 		Blueprint: make([]*ResizeParams, 0),
 	}
 
+	format := a.Format
+	if a.Format == "original" {
+		format = meta.Format
+	}
+
 	// save fallback image
 	if a.Fallback.Format != "" {
 		p.Blueprint = append(
@@ -106,7 +111,7 @@ func (a *Application) Resize(req *ResizeRequestBody, ctx context.Context) (*Meta
 	if req.SaveOriginal {
 		p.Blueprint = append(
 			p.Blueprint, &ResizeParams{
-				Format: DefaultFormat,
+				Format: format,
 			},
 		)
 	}
@@ -117,7 +122,7 @@ func (a *Application) Resize(req *ResizeRequestBody, ctx context.Context) (*Meta
 		p.Blueprint = append(
 			p.Blueprint, &ResizeParams{
 				Size:   size,
-				Format: DefaultFormat,
+				Format: a.Format,
 			},
 		)
 	}
@@ -245,6 +250,7 @@ func (a *Application) resize(ctx context.Context, in *imagor.Blob, size *Size, f
 		FitIn: true,
 		Filters: []imagorpath.Filter{
 			{"format", format},
+			{"quality", "78"},
 		},
 	}
 
