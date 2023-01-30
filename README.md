@@ -19,7 +19,7 @@ Output images will be saved to S3 bucket by default as `webp` format.
 ### Run locally
 1. Build docker image
     ```bash
-    docker build -t image-resizer .
+    docker build -t go-resizer .
     ```
 2. Run docker image
     ```bash
@@ -31,7 +31,7 @@ Output images will be saved to S3 bucket by default as `webp` format.
     -e FALLBACK_FORMAT=jpg \
     -e FALLBACK_SIZE=original \
     -e FORMAT=webp \
-    resizer
+    go-resizer
     ```
 3. Send a POST request:
 
