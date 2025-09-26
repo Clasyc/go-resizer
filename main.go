@@ -38,6 +38,11 @@ func NewApplication(ctx context.Context) *Application {
 	ff := os.Getenv("FALLBACK_FORMAT")
 	fs := os.Getenv("FALLBACK_SIZE")
 	fo := os.Getenv("FORMAT")
+	e := os.Getenv("S3_ENDPOINT")
+	var endpoint *string
+	if e != "" {
+		endpoint = &e
+	}
 	if fo == "" {
 		fo = DefaultFormat
 	}
@@ -54,7 +59,7 @@ func NewApplication(ctx context.Context) *Application {
 		panic(err)
 	}
 	return &Application{
-		Storage: NewStorage(b, r),
+		Storage: NewStorage(b, r, endpoint),
 		Imagor:  img,
 		Client: &http.Client{
 			Timeout: HttpClientTimeout,
