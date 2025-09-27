@@ -2,13 +2,15 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"github.com/cshum/imagor"
 	"github.com/cshum/imagor/loader/httploader"
+	"github.com/cshum/imagor/processor/vipsprocessor"
 	"github.com/cshum/imagor/storage/s3storage"
-	"github.com/cshum/imagor/vips"
 	"go.uber.org/zap"
 	"net/http"
 	"os"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -30,6 +32,7 @@ type Application struct {
 	Mutex    *sync.Mutex
 	Fallback Fallback
 	Format   string
+	DryRun   bool
 }
 
 func NewApplication(ctx context.Context) *Application {
@@ -38,12 +41,23 @@ func NewApplication(ctx context.Context) *Application {
 	ff := os.Getenv("FALLBACK_FORMAT")
 	fs := os.Getenv("FALLBACK_SIZE")
 	fo := os.Getenv("FORMAT")
+	e := os.Getenv("S3_ENDPOINT")
+	dry := false
+
+	var endpoint *string
+	if e != "" {
+		endpoint = &e
+	}
 	if fo == "" {
 		fo = DefaultFormat
 	}
+	if v, err := strconv.ParseBool(os.Getenv("DRY_RUN")); err == nil && v {
+		dry = v
+	}
+
 	img := imagor.New(
 		imagor.WithLoaders(httploader.New()),
-		imagor.WithProcessors(vips.NewProcessor()),
+		imagor.WithProcessors(vipsprocessor.NewProcessor()),
 	)
 	if err := img.Startup(ctx); err != nil {
 		panic(err)
@@ -53,11 +67,22 @@ func NewApplication(ctx context.Context) *Application {
 	if err != nil {
 		panic(err)
 	}
+
 	return &Application{
-		Storage: NewStorage(b, r),
+		Storage: NewStorage(b, r, endpoint),
 		Imagor:  img,
 		Client: &http.Client{
 			Timeout: HttpClientTimeout,
+			Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{
+					InsecureSkipVerify: true,
+					MinVersion:         tls.VersionTLS10,
+					MaxVersion:         tls.VersionTLS13,
+				},
+				MaxIdleConns:        10,
+				IdleConnTimeout:     30 * time.Second,
+				TLSHandshakeTimeout: 10 * time.Second,
+			},
 		},
 		Logger: logger,
 		Counters: &Counters{
@@ -69,6 +94,7 @@ func NewApplication(ctx context.Context) *Application {
 			Size:   NewSize(fs),
 		},
 		Format: fo,
+		DryRun: dry,
 	}
 }
 

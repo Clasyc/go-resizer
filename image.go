@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -10,7 +11,6 @@ import (
 	"github.com/cshum/imagor/imagorpath"
 	"go.uber.org/zap"
 	"io"
-	"net/http"
 	"sort"
 	"strconv"
 	"strings"
@@ -195,6 +195,9 @@ func (a *Application) save(
 }
 
 func (a *Application) metadata(ctx context.Context, in *imagor.Blob) (*Meta, error) {
+	// running docker run -p 8000:8000 --env-file .env --memory=300m go-resizer
+	// with image https://static1.nordic.pictures/56019367/original.jpg
+	// silently fails here
 	blob, err := a.Imagor.ServeBlob(
 		ctx, in, imagorpath.Params{
 			Meta: true,
@@ -219,29 +222,55 @@ func (a *Application) metadata(ctx context.Context, in *imagor.Blob) (*Meta, err
 }
 
 func (a *Application) blob(url string) (*imagor.Blob, error) {
-	var in *imagor.Blob
+	var imageData []byte
+	var contentType string
+
 	err := retry.Do(
 		func() error {
-			var e error
-			in = imagor.NewBlob(
-				func() (reader io.ReadCloser, size int64, err error) {
-					var resp *http.Response
-					if resp, err = a.Client.Get(url); err != nil {
-						e = err
-						return
-					}
-					reader = resp.Body
-					size, _ = strconv.ParseInt(resp.Header.Get("Content-Length"), 10, 64)
-					return
-				},
+			a.Logger.Info("attempting to fetch image", zap.String("url", url))
+
+			resp, err := a.Client.Get(url)
+			if err != nil {
+				a.Logger.Error("failed to fetch image", zap.String("url", url), zap.Error(err))
+				return err
+			}
+			defer resp.Body.Close()
+
+			// Read all data into memory
+			imageData, err = io.ReadAll(resp.Body)
+			if err != nil {
+				a.Logger.Error("failed to read image data", zap.String("url", url), zap.Error(err))
+				return err
+			}
+
+			contentType = resp.Header.Get("Content-Type")
+			a.Logger.Info("successfully fetched image",
+				zap.String("url", url),
+				zap.String("status", resp.Status),
+				zap.String("content-type", contentType),
+				zap.Int("size", len(imageData)),
 			)
-			return e
+
+			return nil
 		},
 		retry.Attempts(RetryAttempts),
 		retry.Delay(RetryDelay),
 	)
 
-	return in, err
+	if err != nil {
+		return nil, err
+	}
+
+	// Create blob from in-memory data instead of URL reference
+	blob := imagor.NewBlob(
+		func() (reader io.ReadCloser, size int64, err error) {
+			reader = io.NopCloser(bytes.NewReader(imageData))
+			size = int64(len(imageData))
+			return
+		},
+	)
+
+	return blob, nil
 }
 
 func (a *Application) resize(ctx context.Context, in *imagor.Blob, size *Size, format, key string) (string, error) {
@@ -272,7 +301,10 @@ func (a *Application) resize(ctx context.Context, in *imagor.Blob, size *Size, f
 	app.Logger.Info(fmt.Sprintf("resize on %s, took %s", key, elapsed))
 	err = retry.Do(
 		func() error {
-			return a.Storage.Put(ctx, key, out)
+			if !a.DryRun {
+				return a.Storage.Put(ctx, key, out)
+			}
+			return nil
 		},
 		retry.Attempts(RetryAttempts),
 		retry.Delay(RetryDelay),

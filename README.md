@@ -10,11 +10,13 @@ Output images will be saved to S3 bucket by default as `webp` format.
 |-----------------------|----------------------------|------------------------------------------------------------------------------------------------------------------------------------------------|
 | S3_BUCKET             | my-bucket                  | S3 bucket name where content will be saved                                                                                                     |
 | S3_REGION             | eu-west-1                  | AWS S3 bucket region name                                                                                                                      |
+| S3_ENDPOINT           | https://s3.example.com     | Custom S3 endpoint URL (for S3-compatible storage or local testing)                                                                            |
 | AWS_ACCESS_KEY_ID     | AKIAEXAMPLEVALUE           | AWS credentials ID                                                                                                                             |
 | AWS_SECRET_ACCESS_KEY | BypKqExaMpLeExamPleExample | AWS credentials secret                                                                                                                         |
 | FALLBACK_FORMAT       | jpg                        | The image format which will be saved as alternative to webp for fallback support, if not set it will be skipped. Possible values: `jpg`, `png` |
 | FALLBACK_SIZE         | original                   | The size which will be used for fallback image, example `512x512`, to keep original size use `original`                                        |
 | FORMAT                | webp                       | The format which will be used to resize the images. Possible values: `original`, `jpg`, `png`, `webp`                                          |
+| DRY_RUN               | true                       | If set to `true`, the app will not save any images to S3 (for testing purposes)                                                                |
 
 ### Run locally
 1. Build docker image
