@@ -1,26 +1,20 @@
 package main
 
 import (
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/credentials"
-	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/cshum/imagor/storage/s3storage"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	s3storage "github.com/cshum/imagor/storage/s3storage"
 )
 
 func NewStorage(bucket, region string, endpoint *string) *s3storage.S3Storage {
-	sess := session.Must(
-		session.NewSession(
-			&aws.Config{
-				Region:      aws.String(region),
-				Credentials: credentials.NewEnvCredentials(),
-				Endpoint:    endpoint,
-			},
-		),
-	)
+	config := aws.Config{
+		Region: region,
+	}
+	usePathStyle := endpoint != nil
 
+	opts := []s3storage.Option{s3storage.WithForcePathStyle(usePathStyle)}
 	if endpoint != nil {
-		sess.Config.S3ForcePathStyle = aws.Bool(true)
+		opts = append(opts, s3storage.WithEndpoint(*endpoint))
 	}
 
-	return s3storage.New(sess, bucket)
+	return s3storage.New(config, bucket, opts...)
 }

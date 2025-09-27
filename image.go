@@ -195,6 +195,9 @@ func (a *Application) save(
 }
 
 func (a *Application) metadata(ctx context.Context, in *imagor.Blob) (*Meta, error) {
+	// running docker run -p 8000:8000 --env-file .env --memory=300m go-resizer
+	// with image https://static1.nordic.pictures/56019367/original.jpg
+	// silently fails here
 	blob, err := a.Imagor.ServeBlob(
 		ctx, in, imagorpath.Params{
 			Meta: true,
@@ -272,7 +275,10 @@ func (a *Application) resize(ctx context.Context, in *imagor.Blob, size *Size, f
 	app.Logger.Info(fmt.Sprintf("resize on %s, took %s", key, elapsed))
 	err = retry.Do(
 		func() error {
-			return a.Storage.Put(ctx, key, out)
+			if !a.DryRun {
+				return a.Storage.Put(ctx, key, out)
+			}
+			return nil
 		},
 		retry.Attempts(RetryAttempts),
 		retry.Delay(RetryDelay),
