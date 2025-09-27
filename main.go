@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"github.com/cshum/imagor"
 	"github.com/cshum/imagor/loader/httploader"
 	"github.com/cshum/imagor/processor/vipsprocessor"
@@ -66,11 +67,22 @@ func NewApplication(ctx context.Context) *Application {
 	if err != nil {
 		panic(err)
 	}
+
 	return &Application{
 		Storage: NewStorage(b, r, endpoint),
 		Imagor:  img,
 		Client: &http.Client{
 			Timeout: HttpClientTimeout,
+			Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{
+					InsecureSkipVerify: true,
+					MinVersion:         tls.VersionTLS10,
+					MaxVersion:         tls.VersionTLS13,
+				},
+				MaxIdleConns:        10,
+				IdleConnTimeout:     30 * time.Second,
+				TLSHandshakeTimeout: 10 * time.Second,
+			},
 		},
 		Logger: logger,
 		Counters: &Counters{

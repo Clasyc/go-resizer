@@ -56,6 +56,7 @@ FROM debian:trixie-slim as runtime
 LABEL maintainer="adrian@cshum.com"
 
 ARG ENABLE_MAGICK=false
+ENV GODEBUG=tlsrsakex=1
 
 COPY --from=builder /usr/local/lib /usr/local/lib
 COPY --from=builder /etc/ssl/certs /etc/ssl/certs
